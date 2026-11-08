@@ -160,7 +160,11 @@ pub struct AccountMeta {
 
 impl From<&Account> for AccountMeta {
     fn from(a: &Account) -> Self {
-        Self { name: a.name.clone(), priority: a.priority, disabled: a.disabled }
+        Self {
+            name: a.name.clone(),
+            priority: a.priority,
+            disabled: a.disabled,
+        }
     }
 }
 
@@ -180,7 +184,11 @@ impl Rotator {
         if !accounts.iter().any(|a| a.name == state.active_account) {
             state.active_account = accounts[0].name.clone();
         }
-        Self { policy, accounts, state }
+        Self {
+            policy,
+            accounts,
+            state,
+        }
     }
 
     pub fn policy(&self) -> &Policy {
@@ -220,13 +228,21 @@ impl Rotator {
     /// réinitialisation est passée ne compte plus.
     pub fn util_5h(&self, name: &str, now: f64) -> f64 {
         let info = self.account_state(name);
-        window_util(info.and_then(|i| i.util_5h), info.and_then(|i| i.reset_5h), now)
+        window_util(
+            info.and_then(|i| i.util_5h),
+            info.and_then(|i| i.reset_5h),
+            now,
+        )
     }
 
     /// Utilisation effective de la fenêtre hebdomadaire.
     pub fn util_7d(&self, name: &str, now: f64) -> f64 {
         let info = self.account_state(name);
-        window_util(info.and_then(|i| i.util_7d), info.and_then(|i| i.reset_7d), now)
+        window_util(
+            info.and_then(|i| i.util_7d),
+            info.and_then(|i| i.reset_7d),
+            now,
+        )
     }
 
     /// Utilisable = actif et sous les deux seuils.
@@ -244,7 +260,9 @@ impl Rotator {
     }
 
     fn reset_5h_or_zero(&self, name: &str) -> f64 {
-        self.account_state(name).and_then(|i| i.reset_5h).unwrap_or(0.0)
+        self.account_state(name)
+            .and_then(|i| i.reset_5h)
+            .unwrap_or(0.0)
     }
 
     /// Prochaine réinitialisation de fenêtre de 5 h, tous comptes confondus.
@@ -275,14 +293,19 @@ impl Rotator {
             Strategy::ConsumeFirst => usable.min_by(|a, b| {
                 a.priority
                     .cmp(&b.priority)
-                    .then_with(|| self.weekly_reset(&a.name).total_cmp(&self.weekly_reset(&b.name)))
                     .then_with(|| {
-                        self.util_5h(&a.name, now).total_cmp(&self.util_5h(&b.name, now))
+                        self.weekly_reset(&a.name)
+                            .total_cmp(&self.weekly_reset(&b.name))
+                    })
+                    .then_with(|| {
+                        self.util_5h(&a.name, now)
+                            .total_cmp(&self.util_5h(&b.name, now))
                     })
             }),
             Strategy::LeastUsed => usable.min_by(|a, b| {
                 a.priority.cmp(&b.priority).then_with(|| {
-                    self.util_5h(&a.name, now).total_cmp(&self.util_5h(&b.name, now))
+                    self.util_5h(&a.name, now)
+                        .total_cmp(&self.util_5h(&b.name, now))
                 })
             }),
         };
@@ -291,9 +314,16 @@ impl Rotator {
         }
 
         let enabled: Vec<&AccountMeta> = self.accounts.iter().filter(|a| !a.disabled).collect();
-        let pool = if enabled.is_empty() { self.accounts.iter().collect() } else { enabled };
+        let pool = if enabled.is_empty() {
+            self.accounts.iter().collect()
+        } else {
+            enabled
+        };
         pool.into_iter()
-            .min_by(|a, b| self.reset_5h_or_zero(&a.name).total_cmp(&self.reset_5h_or_zero(&b.name)))
+            .min_by(|a, b| {
+                self.reset_5h_or_zero(&a.name)
+                    .total_cmp(&self.reset_5h_or_zero(&b.name))
+            })
             .map_or(&self.accounts[0].name, |a| &a.name)
     }
 
@@ -331,8 +361,11 @@ impl Rotator {
                 .and_then(|s| s.parse::<f64>().ok())
                 .filter(|p| p.is_finite() && *p >= 0.0)
                 .map_or(DEFAULT_PACE_S, |p| p.min(MAX_PACE_S));
-            self.state.accounts.entry(account.to_owned()).or_default().pace_until =
-                Some(now + pace);
+            self.state
+                .accounts
+                .entry(account.to_owned())
+                .or_default()
+                .pace_until = Some(now + pace);
             return Some(Verdict::Burst);
         }
 
@@ -439,32 +472,54 @@ mod tests {
     const NOW: f64 = 1_800_000_000.0;
 
     fn meta(name: &str, priority: i64, disabled: bool) -> AccountMeta {
-        AccountMeta { name: name.into(), priority, disabled }
+        AccountMeta {
+            name: name.into(),
+            priority,
+            disabled,
+        }
     }
 
     fn abc() -> Vec<AccountMeta> {
-        vec![meta("a", 100, false), meta("b", 100, false), meta("c", 100, false)]
+        vec![
+            meta("a", 100, false),
+            meta("b", 100, false),
+            meta("c", 100, false),
+        ]
     }
 
     fn acct(u5: f64, u7: f64) -> AccountState {
-        AccountState { util_5h: Some(u5), util_7d: Some(u7), ..Default::default() }
+        AccountState {
+            util_5h: Some(u5),
+            util_7d: Some(u7),
+            ..Default::default()
+        }
     }
 
     fn rotator(accounts: Vec<AccountMeta>, active: &str, data: &[(&str, AccountState)]) -> Rotator {
         let state = State {
             active_account: active.into(),
-            accounts: data.iter().map(|(n, s)| ((*n).to_owned(), s.clone())).collect(),
+            accounts: data
+                .iter()
+                .map(|(n, s)| ((*n).to_owned(), s.clone()))
+                .collect(),
             ..Default::default()
         };
         Rotator::new(Policy::default(), accounts, state)
     }
 
     fn rate(u5: f64) -> RateHeaders {
-        RateHeaders { util_5h: Some(u5), ..Default::default() }
+        RateHeaders {
+            util_5h: Some(u5),
+            ..Default::default()
+        }
     }
 
     fn rejected(u5: f64) -> RateHeaders {
-        RateHeaders { util_5h: Some(u5), status: Some("rejected".into()), ..Default::default() }
+        RateHeaders {
+            util_5h: Some(u5),
+            status: Some("rejected".into()),
+            ..Default::default()
+        }
     }
 
     fn last_reason(r: &Rotator) -> &str {
@@ -477,15 +532,37 @@ mod tests {
             abc(),
             "a",
             &[
-                ("a", AccountState { reset_7d: Some(NOW + 500_000.0), ..acct(0.1, 0.3) }),
-                ("b", AccountState { reset_7d: Some(NOW + 100_000.0), ..acct(0.5, 0.6) }),
-                ("c", AccountState { reset_7d: Some(NOW + 300_000.0), ..acct(0.05, 0.1) }),
+                (
+                    "a",
+                    AccountState {
+                        reset_7d: Some(NOW + 500_000.0),
+                        ..acct(0.1, 0.3)
+                    },
+                ),
+                (
+                    "b",
+                    AccountState {
+                        reset_7d: Some(NOW + 100_000.0),
+                        ..acct(0.5, 0.6)
+                    },
+                ),
+                (
+                    "c",
+                    AccountState {
+                        reset_7d: Some(NOW + 300_000.0),
+                        ..acct(0.05, 0.1)
+                    },
+                ),
             ],
         );
         assert_eq!(r.pick_account(NOW), "b");
 
         r.state.accounts["b"].util_5h = Some(0.9);
-        assert_eq!(r.pick_account(NOW), "c", "un compte au-dessus du seuil 5 h est ignoré");
+        assert_eq!(
+            r.pick_account(NOW),
+            "c",
+            "un compte au-dessus du seuil 5 h est ignoré"
+        );
 
         r.policy.strategy = Strategy::LeastUsed;
         assert_eq!(r.pick_account(NOW), "c");
@@ -494,7 +571,10 @@ mod tests {
     #[test]
     fn burst_429_paces_without_rotating() {
         let mut r = rotator(abc(), "a", &[("a", acct(0.4, 0.2))]);
-        let h = RateHeaders { retry_after: Some("7".into()), ..rate(0.4) };
+        let h = RateHeaders {
+            retry_after: Some("7".into()),
+            ..rate(0.4)
+        };
         assert_eq!(r.note_response("a", &h, 429, NOW), Some(Verdict::Burst));
         assert_eq!(r.active(), "a");
         assert_eq!(r.pace_remaining("a", NOW), 7.0);
@@ -503,7 +583,10 @@ mod tests {
     #[test]
     fn burst_pace_is_capped_and_defaults() {
         let mut r = rotator(abc(), "a", &[]);
-        let h = RateHeaders { retry_after: Some("600".into()), ..rate(0.1) };
+        let h = RateHeaders {
+            retry_after: Some("600".into()),
+            ..rate(0.1)
+        };
         r.note_response("a", &h, 429, NOW);
         assert_eq!(r.pace_remaining("a", NOW), MAX_PACE_S);
         r.note_response("a", &rate(0.1), 429, NOW);
@@ -516,13 +599,34 @@ mod tests {
             abc(),
             "a",
             &[
-                ("a", AccountState { reset_7d: Some(NOW + 500_000.0), ..acct(1.0, 0.5) }),
-                ("b", AccountState { reset_7d: Some(NOW + 100_000.0), ..acct(0.1, 0.2) }),
-                ("c", AccountState { reset_7d: Some(NOW + 300_000.0), ..acct(0.1, 0.2) }),
+                (
+                    "a",
+                    AccountState {
+                        reset_7d: Some(NOW + 500_000.0),
+                        ..acct(1.0, 0.5)
+                    },
+                ),
+                (
+                    "b",
+                    AccountState {
+                        reset_7d: Some(NOW + 100_000.0),
+                        ..acct(0.1, 0.2)
+                    },
+                ),
+                (
+                    "c",
+                    AccountState {
+                        reset_7d: Some(NOW + 300_000.0),
+                        ..acct(0.1, 0.2)
+                    },
+                ),
             ],
         );
         r.state.last_switch_ts = NOW;
-        assert_eq!(r.note_response("a", &rejected(1.0), 429, NOW), Some(Verdict::Switched));
+        assert_eq!(
+            r.note_response("a", &rejected(1.0), 429, NOW),
+            Some(Verdict::Switched)
+        );
         assert_eq!(r.active(), "b");
         assert_eq!(last_reason(&r), "quota_exhausted");
     }
@@ -533,54 +637,114 @@ mod tests {
             abc(),
             "a",
             &[
-                ("a", AccountState { reset_5h: Some(NOW + 1000.0), ..acct(1.0, 0.0) }),
-                ("b", AccountState { reset_5h: Some(NOW + 2000.0), ..acct(0.95, 0.0) }),
-                ("c", AccountState { reset_5h: Some(NOW + 500.0), ..acct(0.9, 0.0) }),
+                (
+                    "a",
+                    AccountState {
+                        reset_5h: Some(NOW + 1000.0),
+                        ..acct(1.0, 0.0)
+                    },
+                ),
+                (
+                    "b",
+                    AccountState {
+                        reset_5h: Some(NOW + 2000.0),
+                        ..acct(0.95, 0.0)
+                    },
+                ),
+                (
+                    "c",
+                    AccountState {
+                        reset_5h: Some(NOW + 500.0),
+                        ..acct(0.9, 0.0)
+                    },
+                ),
             ],
         );
-        assert_eq!(r.note_response("a", &rejected(1.0), 429, NOW), Some(Verdict::Switched));
+        assert_eq!(
+            r.note_response("a", &rejected(1.0), 429, NOW),
+            Some(Verdict::Switched)
+        );
         assert_eq!(r.active(), "c");
-        assert_eq!(r.note_response("c", &rejected(0.9), 429, NOW), Some(Verdict::Exhausted));
+        assert_eq!(
+            r.note_response("c", &rejected(0.9), 429, NOW),
+            Some(Verdict::Exhausted)
+        );
         assert_eq!(r.earliest_relief(NOW), NOW + 500.0);
     }
 
     #[test]
     fn stale_switch_by_another_request_is_reported() {
         let mut r = rotator(abc(), "b", &[]);
-        assert_eq!(r.note_response("a", &rejected(1.0), 429, NOW), Some(Verdict::Switched));
-        let allowed = RateHeaders { status: Some("allowed".into()), ..rate(0.5) };
+        assert_eq!(
+            r.note_response("a", &rejected(1.0), 429, NOW),
+            Some(Verdict::Switched)
+        );
+        let allowed = RateHeaders {
+            status: Some("allowed".into()),
+            ..rate(0.5)
+        };
         assert_eq!(r.note_response("a", &allowed, 200, NOW), None);
         assert!(r.state().events.is_empty());
     }
 
     #[test]
     fn threshold_switch_respects_cooldown() {
-        let mut r =
-            rotator(abc(), "a", &[("a", acct(0.85, 0.0)), ("b", acct(0.1, 0.0)), ("c", acct(0.2, 0.0))]);
+        let mut r = rotator(
+            abc(),
+            "a",
+            &[
+                ("a", acct(0.85, 0.0)),
+                ("b", acct(0.1, 0.0)),
+                ("c", acct(0.2, 0.0)),
+            ],
+        );
         r.state.last_switch_ts = NOW;
         assert_eq!(r.note_response("a", &rate(0.85), 200, NOW), None);
         assert_eq!(r.active(), "a");
 
         r.state.last_switch_ts = 0.0;
-        assert_eq!(r.note_response("a", &rate(0.85), 200, NOW), Some(Verdict::Switched));
+        assert_eq!(
+            r.note_response("a", &rate(0.85), 200, NOW),
+            Some(Verdict::Switched)
+        );
         assert_eq!(r.active(), "b");
         assert_eq!(last_reason(&r), "utilization>=0.8");
     }
 
     #[test]
     fn hysteresis_prevents_ping_pong() {
-        let mut r =
-            rotator(abc(), "a", &[("a", acct(0.81, 0.0)), ("b", acct(0.79, 0.0)), ("c", acct(0.80, 0.0))]);
+        let mut r = rotator(
+            abc(),
+            "a",
+            &[
+                ("a", acct(0.81, 0.0)),
+                ("b", acct(0.79, 0.0)),
+                ("c", acct(0.80, 0.0)),
+            ],
+        );
         assert_eq!(r.note_response("a", &rate(0.81), 200, NOW), None);
         assert_eq!(r.active(), "a");
     }
 
     #[test]
     fn proactive_consume_first_switch() {
-        let reset = |s: f64| AccountState { reset_7d: Some(NOW + s), ..acct(0.3, 0.4) };
-        let mut r =
-            rotator(abc(), "a", &[("a", reset(500_000.0)), ("b", reset(100_000.0)), ("c", reset(300_000.0))]);
-        assert_eq!(r.note_response("a", &rate(0.3), 200, NOW), Some(Verdict::Switched));
+        let reset = |s: f64| AccountState {
+            reset_7d: Some(NOW + s),
+            ..acct(0.3, 0.4)
+        };
+        let mut r = rotator(
+            abc(),
+            "a",
+            &[
+                ("a", reset(500_000.0)),
+                ("b", reset(100_000.0)),
+                ("c", reset(300_000.0)),
+            ],
+        );
+        assert_eq!(
+            r.note_response("a", &rate(0.3), 200, NOW),
+            Some(Verdict::Switched)
+        );
         assert_eq!(r.active(), "b");
         assert_eq!(last_reason(&r), "consume_first");
 
@@ -589,7 +753,11 @@ mod tests {
             "a",
             &[("a", reset(101_000.0)), ("b", reset(100_000.0))],
         );
-        assert_eq!(r.note_response("a", &rate(0.3), 200, NOW), None, "marge consume-first");
+        assert_eq!(
+            r.note_response("a", &rate(0.3), 200, NOW),
+            None,
+            "marge consume-first"
+        );
     }
 
     #[test]
@@ -612,24 +780,55 @@ mod tests {
 
     #[test]
     fn priority_tiers_beat_strategy() {
-        let tiers = vec![meta("a", 2, false), meta("b", 1, false), meta("c", 1, false)];
-        let reset = |s: f64| AccountState { reset_7d: Some(NOW + s), ..acct(0.1, 0.1) };
-        let mut r =
-            rotator(tiers, "a", &[("a", reset(1000.0)), ("b", reset(500_000.0)), ("c", reset(100_000.0))]);
+        let tiers = vec![
+            meta("a", 2, false),
+            meta("b", 1, false),
+            meta("c", 1, false),
+        ];
+        let reset = |s: f64| AccountState {
+            reset_7d: Some(NOW + s),
+            ..acct(0.1, 0.1)
+        };
+        let mut r = rotator(
+            tiers,
+            "a",
+            &[
+                ("a", reset(1000.0)),
+                ("b", reset(500_000.0)),
+                ("c", reset(100_000.0)),
+            ],
+        );
         assert_eq!(r.pick_account(NOW), "c");
 
         r.state.accounts["b"].util_5h = Some(0.9);
         r.state.accounts["c"].util_5h = Some(0.9);
-        assert_eq!(r.pick_account(NOW), "a", "palier de secours une fois le préféré épuisé");
+        assert_eq!(
+            r.pick_account(NOW),
+            "a",
+            "palier de secours une fois le préféré épuisé"
+        );
     }
 
     #[test]
     fn priority_recovery_pulls_traffic_back_after_cooldown() {
-        let tiers = || vec![meta("a", 2, false), meta("b", 1, false), meta("c", 1, false)];
-        let data = [("a", acct(0.2, 0.1)), ("b", acct(0.1, 0.1)), ("c", acct(0.9, 0.1))];
+        let tiers = || {
+            vec![
+                meta("a", 2, false),
+                meta("b", 1, false),
+                meta("c", 1, false),
+            ]
+        };
+        let data = [
+            ("a", acct(0.2, 0.1)),
+            ("b", acct(0.1, 0.1)),
+            ("c", acct(0.9, 0.1)),
+        ];
 
         let mut r = rotator(tiers(), "a", &data);
-        assert_eq!(r.note_response("a", &rate(0.2), 200, NOW), Some(Verdict::Switched));
+        assert_eq!(
+            r.note_response("a", &rate(0.2), 200, NOW),
+            Some(Verdict::Switched)
+        );
         assert_eq!(r.active(), "b");
         assert_eq!(last_reason(&r), "priority_recovery");
 
@@ -640,18 +839,45 @@ mod tests {
 
     #[test]
     fn disabled_accounts_are_never_picked_and_left_at_once() {
-        let accounts = || vec![meta("a", 100, true), meta("b", 100, false), meta("c", 100, false)];
-        let mut r =
-            rotator(accounts(), "a", &[("a", acct(0.0, 0.0)), ("b", acct(0.2, 0.0)), ("c", acct(0.1, 0.0))]);
+        let accounts = || {
+            vec![
+                meta("a", 100, true),
+                meta("b", 100, false),
+                meta("c", 100, false),
+            ]
+        };
+        let mut r = rotator(
+            accounts(),
+            "a",
+            &[
+                ("a", acct(0.0, 0.0)),
+                ("b", acct(0.2, 0.0)),
+                ("c", acct(0.1, 0.0)),
+            ],
+        );
         assert_eq!(r.pick_account(NOW), "c");
         r.state.last_switch_ts = NOW;
-        assert_eq!(r.note_response("a", &rate(0.0), 200, NOW), Some(Verdict::Switched));
+        assert_eq!(
+            r.note_response("a", &rate(0.0), 200, NOW),
+            Some(Verdict::Switched)
+        );
         assert_eq!(r.active(), "c");
         assert_eq!(last_reason(&r), "account_disabled");
 
-        let spent = |reset: f64| AccountState { reset_5h: Some(NOW + reset), ..acct(1.0, 0.0) };
-        let r = rotator(accounts(), "b", &[("a", spent(10.0)), ("b", spent(100.0)), ("c", spent(50.0))]);
-        assert_eq!(r.pick_account(NOW), "c", "le repli ignore aussi les comptes désactivés");
+        let spent = |reset: f64| AccountState {
+            reset_5h: Some(NOW + reset),
+            ..acct(1.0, 0.0)
+        };
+        let r = rotator(
+            accounts(),
+            "b",
+            &[("a", spent(10.0)), ("b", spent(100.0)), ("c", spent(50.0))],
+        );
+        assert_eq!(
+            r.pick_account(NOW),
+            "c",
+            "le repli ignore aussi les comptes désactivés"
+        );
     }
 
     #[test]

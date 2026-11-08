@@ -54,17 +54,23 @@ impl Reply {
     }
 
     fn ok() -> Self {
-        Self::json(200, json!({"id": "msg_1", "type": "message", "model": "claude-opus-5",
+        Self::json(
+            200,
+            json!({"id": "msg_1", "type": "message", "model": "claude-opus-5",
             "content": [{"type": "text", "text": "bonjour"}], "stop_reason": "end_turn",
-            "usage": {"input_tokens": 10, "output_tokens": 5}}))
+            "usage": {"input_tokens": 10, "output_tokens": 5}}),
+        )
         .header(UTIL_5H, "0.2")
         .header(STATUS, "allowed")
     }
 
     fn quota_exhausted() -> Self {
-        Self::json(429, json!({"type": "error", "error": {"type": "rate_limit_error"}}))
-            .header(UTIL_5H, "1.0")
-            .header(STATUS, "rejected")
+        Self::json(
+            429,
+            json!({"type": "error", "error": {"type": "rate_limit_error"}}),
+        )
+        .header(UTIL_5H, "1.0")
+        .header(STATUS, "rejected")
     }
 
     fn sse(chunks: &[&str]) -> Self {
@@ -107,7 +113,11 @@ impl Mock {
 async fn mock_handler(State(mock): State<Arc<Mock>>, req: Request) -> Response {
     let (parts, body) = req.into_parts();
     let body = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-    let seen = Seen { path: parts.uri.path().to_owned(), headers: parts.headers, body };
+    let seen = Seen {
+        path: parts.uri.path().to_owned(),
+        headers: parts.headers,
+        body,
+    };
     let reply = (mock.handler)(&seen);
     mock.seen.lock().unwrap().push(seen);
     tokio::time::sleep(reply.delay).await;
@@ -117,7 +127,10 @@ async fn mock_handler(State(mock): State<Arc<Mock>>, req: Request) -> Response {
         builder = builder.header(*name, value);
     }
     let stream = futures_util::stream::iter(reply.chunks.into_iter().map(Ok::<_, std::io::Error>));
-    builder.body(Body::from_stream(stream)).unwrap().into_response()
+    builder
+        .body(Body::from_stream(stream))
+        .unwrap()
+        .into_response()
 }
 
 async fn spawn(router: Router) -> String {
@@ -135,9 +148,20 @@ struct Harness {
 }
 
 impl Harness {
-    async fn new(overrides: Value, handler: impl Fn(&Seen) -> Reply + Send + Sync + 'static) -> Self {
-        let mock = Arc::new(Mock { handler: Box::new(handler), seen: Mutex::new(Vec::new()) });
-        let upstream = spawn(Router::new().fallback(mock_handler).with_state(Arc::clone(&mock))).await;
+    async fn new(
+        overrides: Value,
+        handler: impl Fn(&Seen) -> Reply + Send + Sync + 'static,
+    ) -> Self {
+        let mock = Arc::new(Mock {
+            handler: Box::new(handler),
+            seen: Mutex::new(Vec::new()),
+        });
+        let upstream = spawn(
+            Router::new()
+                .fallback(mock_handler)
+                .with_state(Arc::clone(&mock)),
+        )
+        .await;
 
         let mut cfg = json!({
             "upstream": upstream,
@@ -159,8 +183,16 @@ impl Harness {
             .collect();
         let app = App::new(Loaded { config, accounts }, Storage::Memory).unwrap();
         let base = spawn(server::router(Arc::clone(&app))).await;
-        let http = reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap();
-        Self { base, app, mock, http }
+        let http = reqwest::Client::builder()
+            .pool_max_idle_per_host(0)
+            .build()
+            .unwrap();
+        Self {
+            base,
+            app,
+            mock,
+            http,
+        }
     }
 
     fn post(&self, path: &str, body: Value) -> reqwest::RequestBuilder {
@@ -172,14 +204,22 @@ impl Harness {
     }
 
     async fn messages(&self) -> reqwest::Response {
-        self.post("/v1/messages", json!({"model": "claude-opus-5", "messages": []}))
-            .send()
-            .await
-            .unwrap()
+        self.post(
+            "/v1/messages",
+            json!({"model": "claude-opus-5", "messages": []}),
+        )
+        .send()
+        .await
+        .unwrap()
     }
 
     fn switches(&self) -> usize {
-        self.app.state().events.iter().filter(|e| e.kind == "switch").count()
+        self.app
+            .state()
+            .events
+            .iter()
+            .filter(|e| e.kind == "switch")
+            .count()
     }
 }
 
@@ -195,13 +235,19 @@ async fn unknown_device_key_is_rejected_before_upstream() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["error"]["message"], "claude-rotate: unknown device key");
+    assert_eq!(
+        body["error"]["message"],
+        "claude-rotate: unknown device key"
+    );
     assert!(h.mock.seen().is_empty());
 }
 
 #[tokio::test]
 async fn headers_are_rewritten_transparently() {
-    let h = Harness::new(json!({}), |_| Reply::ok().header("content-encoding", "gzip")).await;
+    let h = Harness::new(json!({}), |_| {
+        Reply::ok().header("content-encoding", "gzip")
+    })
+    .await;
     let resp = h
         .post("/v1/messages?beta=true", json!({"model": "claude-opus-5"}))
         .header("anthropic-beta", "oauth-2025-04-20")
@@ -262,7 +308,9 @@ async fn burst_429_paces_on_the_same_account() {
     let h = Harness::new(json!({}), move |_| {
         let mut first = first.lock().unwrap();
         if std::mem::take(&mut *first) {
-            Reply::json(429, json!({})).header(UTIL_5H, "0.3").header("retry-after", "0")
+            Reply::json(429, json!({}))
+                .header(UTIL_5H, "0.3")
+                .header("retry-after", "0")
         } else {
             Reply::ok()
         }
@@ -290,7 +338,11 @@ async fn exhausted_passes_429_through_and_openai_gets_503() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let retry_after: u64 = resp.headers()["retry-after"].to_str().unwrap().parse().unwrap();
+    let retry_after: u64 = resp.headers()["retry-after"]
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     assert!(retry_after >= 1);
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["error"]["type"], "overloaded_error");
@@ -313,7 +365,10 @@ async fn hold_until_reset_releases_requests_together() {
     let t0 = Instant::now();
     let responses = futures_util::future::join_all((0..10).map(|_| h.messages())).await;
     assert!(responses.iter().all(|r| r.status() == StatusCode::OK));
-    assert!(t0.elapsed() >= Duration::from_millis(800), "les requêtes ont bien été retenues");
+    assert!(
+        t0.elapsed() >= Duration::from_millis(800),
+        "les requêtes ont bien été retenues"
+    );
     assert!(h.app.state().events.iter().any(|e| e.kind == "hold"));
 }
 
@@ -328,9 +383,20 @@ async fn herd_hitting_a_quota_causes_exactly_one_switch() {
 
     let responses = futures_util::future::join_all((0..RACERS).map(|_| h.messages())).await;
     assert!(responses.iter().all(|r| r.status() == StatusCode::OK));
-    assert_eq!(h.switches(), 1, "une seule décision de bascule pour tout le troupeau");
-    assert!(h.mock.hits("tok-a") <= RACERS, "chaque requête touche le compte mourant au plus une fois");
-    assert_eq!(h.mock.hits("tok-b"), RACERS, "une seule nouvelle tentative par requête");
+    assert_eq!(
+        h.switches(),
+        1,
+        "une seule décision de bascule pour tout le troupeau"
+    );
+    assert!(
+        h.mock.hits("tok-a") <= RACERS,
+        "chaque requête touche le compte mourant au plus une fois"
+    );
+    assert_eq!(
+        h.mock.hits("tok-b"),
+        RACERS,
+        "une seule nouvelle tentative par requête"
+    );
 }
 
 #[tokio::test]
@@ -405,7 +471,12 @@ async fn openai_endpoint_refuses_tools() {
 async fn admin_endpoints_require_a_device_key() {
     let h = Harness::new(json!({}), |_| Reply::ok()).await;
     for path in ["/rotate/status", "/rotate/stats", "/rotate/panel"] {
-        let resp = h.http.get(format!("{}{path}", h.base)).send().await.unwrap();
+        let resp = h
+            .http
+            .get(format!("{}{path}", h.base))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{path}");
     }
 
@@ -435,7 +506,12 @@ async fn admin_endpoints_require_a_device_key() {
         .unwrap();
     assert_eq!(stats["by_device"]["laptop"]["requests"], 1);
 
-    let panel = h.http.get(format!("{}/rotate/panel?key={DEVICE_KEY}", h.base)).send().await.unwrap();
+    let panel = h
+        .http
+        .get(format!("{}/rotate/panel?key={DEVICE_KEY}", h.base))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(panel.status(), StatusCode::OK);
     assert_eq!(panel.headers()["referrer-policy"], "no-referrer");
 }
@@ -447,8 +523,12 @@ async fn upstream_down_yields_502() {
         "devices": {"laptop": DEVICE_KEY},
     }))
     .unwrap();
-    let accounts =
-        vec![Account { name: "a".into(), token: "tok-a".into(), priority: 100, disabled: false }];
+    let accounts = vec![Account {
+        name: "a".into(),
+        token: "tok-a".into(),
+        priority: 100,
+        disabled: false,
+    }];
     let app = App::new(Loaded { config, accounts }, Storage::Memory).unwrap();
     let base = spawn(server::router(app)).await;
     let resp = reqwest::Client::new()

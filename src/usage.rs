@@ -36,9 +36,12 @@ impl Usage {
     pub fn absorb_max(&mut self, other: &Self) {
         self.input_tokens = self.input_tokens.max(other.input_tokens);
         self.output_tokens = self.output_tokens.max(other.output_tokens);
-        self.cache_read_input_tokens = self.cache_read_input_tokens.max(other.cache_read_input_tokens);
-        self.cache_creation_input_tokens =
-            self.cache_creation_input_tokens.max(other.cache_creation_input_tokens);
+        self.cache_read_input_tokens = self
+            .cache_read_input_tokens
+            .max(other.cache_read_input_tokens);
+        self.cache_creation_input_tokens = self
+            .cache_creation_input_tokens
+            .max(other.cache_creation_input_tokens);
     }
 
     /// Tokens qui pèsent sur la fenêtre de quota (les lectures de cache exclues).
@@ -118,7 +121,11 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 /// Prix `[entrée, sortie]` par million de tokens : premier motif contenu dans l'id du modèle.
 pub fn price_for(prices: &IndexMap<String, [f64; 2]>, model: Option<&str>) -> [f64; 2] {
     model
-        .and_then(|m| prices.iter().find(|(pattern, _)| m.contains(pattern.as_str())))
+        .and_then(|m| {
+            prices
+                .iter()
+                .find(|(pattern, _)| m.contains(pattern.as_str()))
+        })
         .map_or(DEFAULT_PRICE, |(_, price)| *price)
 }
 
@@ -153,7 +160,10 @@ mod tests {
         let mut s = SseUsageScanner::default();
         s.feed(STREAM.as_bytes());
         let u = s.usage().expect("usage trouvé");
-        assert_eq!((u.input_tokens, u.output_tokens, u.cache_read_input_tokens), (12, 42, 300));
+        assert_eq!(
+            (u.input_tokens, u.output_tokens, u.cache_read_input_tokens),
+            (12, 42, 300)
+        );
     }
 
     #[test]

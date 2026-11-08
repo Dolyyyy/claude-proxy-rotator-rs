@@ -284,7 +284,10 @@ mod tests {
 
     #[test]
     fn strategy_is_kebab_case() {
-        assert_eq!(parse(r#"{"strategy":"least-used"}"#).strategy, Strategy::LeastUsed);
+        assert_eq!(
+            parse(r#"{"strategy":"least-used"}"#).strategy,
+            Strategy::LeastUsed
+        );
     }
 
     #[test]
@@ -310,7 +313,8 @@ mod tests {
     fn example_config_parses_once_placeholder_replaced() {
         let raw = include_str!("../config.example.json").replace(PLACEHOLDER_MARKER, "x");
         let cfg: Config = serde_json::from_str(&raw).expect("config.example.json valide");
-        cfg.validate().expect("exemple valide une fois la clé remplacée");
+        cfg.validate()
+            .expect("exemple valide une fois la clé remplacée");
     }
 
     #[test]

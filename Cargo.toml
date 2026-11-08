@@ -36,7 +36,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 [dev-dependencies]
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 tempfile = "3"
-tower = { version = "0.5.3", features = ["util"] }
 
 [profile.release]
 lto = "thin"

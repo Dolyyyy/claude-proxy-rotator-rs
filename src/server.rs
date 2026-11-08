@@ -30,7 +30,10 @@ use tokio::sync::Notify;
 use crate::audit::{AuditLog, AuditRecord, StatsContext};
 use crate::config::{AUDIT_FILE, AlertConfig, Config, Loaded, STATE_FILE};
 use crate::oai::{self, SseToOai};
-use crate::rotation::{AccountMeta, Event, Policy, RateHeaders, Rotator, State as RotationState, Verdict, headers as rl};
+use crate::rotation::{
+    AccountMeta, Event, Policy, RateHeaders, Rotator, State as RotationState, Verdict,
+    headers as rl,
+};
 use crate::time::{local_timestamp, now};
 use crate::usage::{SseUsageScanner, Usage};
 
@@ -135,8 +138,11 @@ impl App {
             Storage::Disk(root) => {
                 let path = root.join(STATE_FILE);
                 let audit = AuditLog::open(root.join(AUDIT_FILE))?;
-                let state_file =
-                    StateFile { path: path.clone(), dirty: Notify::new(), write_lock: Mutex::new(()) };
+                let state_file = StateFile {
+                    path: path.clone(),
+                    dirty: Notify::new(),
+                    write_lock: Mutex::new(()),
+                };
                 (load_state(&path), audit, Some(state_file))
             }
             Storage::Memory => (RotationState::default(), AuditLog::in_memory(), None),
@@ -152,7 +158,11 @@ impl App {
             .context("création du client HTTP amont")?;
 
         let app = Arc::new(Self {
-            device_by_key: config.devices.iter().map(|(n, k)| (k.clone(), n.clone())).collect(),
+            device_by_key: config
+                .devices
+                .iter()
+                .map(|(n, k)| (k.clone(), n.clone()))
+                .collect(),
             devices: config.devices.clone(),
             auth_headers,
             rotator: Mutex::new(rotator),
@@ -189,7 +199,11 @@ impl App {
     /// Identifie l'appareil : `Authorization: Bearer`, puis `x-api-key`, puis `?key=`.
     fn device(&self, headers: &HeaderMap, uri: &Uri) -> Option<String> {
         let header_key = |name: &HeaderName| {
-            headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim).filter(|k| !k.is_empty())
+            headers
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .filter(|k| !k.is_empty())
         };
         let bearer = header_key(&header::AUTHORIZATION).and_then(|auth| {
             let (scheme, key) = auth.split_once(' ')?;
@@ -211,7 +225,10 @@ impl App {
             let before = rotator.active().to_owned();
             let verdict = rotator.note_response(account, rate, status, now());
             if rotator.active() != before {
-                let reason = rotator.recent_events(1).first().map_or("", |e| e.reason.as_str());
+                let reason = rotator
+                    .recent_events(1)
+                    .first()
+                    .map_or("", |e| e.reason.as_str());
                 tracing::info!(from = %before, to = %rotator.active(), reason, "bascule de compte");
             }
             verdict
@@ -275,20 +292,34 @@ impl App {
                 .send()
                 .await?;
             if resp.status() != StatusCode::TOO_MANY_REQUESTS {
-                return Ok(Upstream { resp, account, retries, noted: false, verdict: None });
+                return Ok(Upstream {
+                    resp,
+                    account,
+                    retries,
+                    noted: false,
+                    verdict: None,
+                });
             }
 
             let verdict = self.note(&account, &RateHeaders::from_headers(resp.headers()), 429);
-            let mut retry =
-                matches!(verdict, Some(Verdict::Switched | Verdict::Burst)) && retries < MAX_RETRIES;
+            let mut retry = matches!(verdict, Some(Verdict::Switched | Verdict::Burst))
+                && retries < MAX_RETRIES;
             let mut wait = 0.0;
-            if let (false, Some(Verdict::Exhausted), Some(deadline)) = (retry, verdict, hold_deadline) {
+            if let (false, Some(Verdict::Exhausted), Some(deadline)) =
+                (retry, verdict, hold_deadline)
+            {
                 let relief = self.rotator().earliest_relief(now());
                 wait = (relief + HOLD_SLACK_S).min(deadline) - now();
                 retry = wait > 0.0;
             }
             if !retry {
-                return Ok(Upstream { resp, account, retries, noted: true, verdict });
+                return Ok(Upstream {
+                    resp,
+                    account,
+                    retries,
+                    noted: true,
+                    verdict,
+                });
             }
 
             drop(resp);
@@ -316,17 +347,29 @@ impl App {
             .accounts()
             .iter()
             .map(|meta| {
-                let state = rotator.account_state(&meta.name).cloned().unwrap_or_default();
+                let state = rotator
+                    .account_state(&meta.name)
+                    .cloned()
+                    .unwrap_or_default();
                 let mut info = match serde_json::to_value(&state) {
                     Ok(Value::Object(map)) => map,
                     _ => Map::new(),
                 };
-                info.insert("effective_util_5h".into(), json!(rotator.util_5h(&meta.name, now)));
-                info.insert("effective_util_7d".into(), json!(rotator.util_7d(&meta.name, now)));
+                info.insert(
+                    "effective_util_5h".into(),
+                    json!(rotator.util_5h(&meta.name, now)),
+                );
+                info.insert(
+                    "effective_util_7d".into(),
+                    json!(rotator.util_7d(&meta.name, now)),
+                );
                 info.insert("priority".into(), json!(meta.priority));
                 info.insert("disabled".into(), json!(meta.disabled));
                 if let Some(reset) = state.reset_5h.filter(|r| *r != 0.0) {
-                    info.insert("reset_5h_in_min".into(), json!(((reset - now) / 60.0).round().max(0.0)));
+                    info.insert(
+                        "reset_5h_in_min".into(),
+                        json!(((reset - now) / 60.0).round().max(0.0)),
+                    );
                 }
                 if let Some(reset) = state.reset_7d.filter(|r| *r != 0.0) {
                     let hours = ((reset - now) / 3600.0 * 10.0).round() / 10.0;
@@ -358,7 +401,10 @@ impl StateFile {
     /// Écriture atomique (fichier temporaire puis renommage) : un arrêt brutal
     /// ne peut pas laisser un `state.json` tronqué.
     fn write(&self, data: &[u8]) {
-        let _guard = self.write_lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let _guard = self
+            .write_lock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let tmp = self.path.with_extension("json.tmp");
         let result = std::fs::write(&tmp, data).and_then(|()| std::fs::rename(&tmp, &self.path));
         if let Err(err) = result {
@@ -521,7 +567,10 @@ async fn rotate_panel(State(app): State<Arc<App>>, headers: HeaderMap, uri: Uri)
     let mut resp = Html(PANEL_HTML).into_response();
     let h = resp.headers_mut();
     // La clé circule dans l'URL : elle ne doit fuir ni par le Referer ni par un cache.
-    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    h.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     resp
@@ -546,7 +595,10 @@ fn forward_request_headers(src: &HeaderMap) -> HeaderMap {
             out.append(name.clone(), value.clone());
         }
     }
-    out.insert(header::ACCEPT_ENCODING, HeaderValue::from_static("identity"));
+    out.insert(
+        header::ACCEPT_ENCODING,
+        HeaderValue::from_static("identity"),
+    );
     out
 }
 
@@ -569,7 +621,10 @@ fn insert_account(headers: &mut HeaderMap, account: &str) {
 }
 
 fn header_string(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_owned)
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
 }
 
 fn is_event_stream(headers: &HeaderMap) -> bool {
@@ -581,7 +636,11 @@ fn is_event_stream(headers: &HeaderMap) -> bool {
 
 fn upstream_unreachable(err: &reqwest::Error) -> Response {
     tracing::warn!(%err, "API amont injoignable");
-    anthropic_error(StatusCode::BAD_GATEWAY, "api_error", "claude-rotate: upstream unreachable")
+    anthropic_error(
+        StatusCode::BAD_GATEWAY,
+        "api_error",
+        "claude-rotate: upstream unreachable",
+    )
 }
 
 async fn proxy(State(app): State<Arc<App>>, req: Request) -> Response {
@@ -604,12 +663,24 @@ async fn proxy(State(app): State<Arc<App>>, req: Request) -> Response {
         }
     };
 
-    let model = if parts.method == Method::POST { model_of(&body) } else { None };
+    let model = if parts.method == Method::POST {
+        model_of(&body)
+    } else {
+        None
+    };
     let path = parts.uri.path().to_owned();
-    let path_and_query = parts.uri.path_and_query().map_or(path.as_str(), |pq| pq.as_str());
+    let path_and_query = parts
+        .uri
+        .path_and_query()
+        .map_or(path.as_str(), |pq| pq.as_str());
 
     let up = match app
-        .send_upstream(&parts.method, path_and_query, forward_request_headers(&parts.headers), body)
+        .send_upstream(
+            &parts.method,
+            path_and_query,
+            forward_request_headers(&parts.headers),
+            body,
+        )
         .await
     {
         Ok(up) => up,
@@ -731,7 +802,11 @@ fn relay_stream(
     rate: RateHeaders,
     mut transform: impl SseTransform,
 ) -> Body {
-    let mut audit = StreamAudit { app, rec: Some(rec), rate };
+    let mut audit = StreamAudit {
+        app,
+        rec: Some(rec),
+        rate,
+    };
     let mut upstream = resp.bytes_stream();
     Body::from_stream(async_stream::stream! {
         while let Some(chunk) = upstream.next().await {
@@ -763,7 +838,11 @@ fn relay_stream(
 // ---------------------------------------------------------------------------
 
 fn oai_error(status: StatusCode, kind: &str, message: &str) -> Response {
-    (status, Json(json!({ "error": { "message": message, "type": kind } }))).into_response()
+    (
+        status,
+        Json(json!({ "error": { "message": message, "type": kind } })),
+    )
+        .into_response()
 }
 
 /// `POST /v1/chat/completions` : n'importe quel client au format OpenAI profite
@@ -771,35 +850,76 @@ fn oai_error(status: StatusCode, kind: &str, message: &str) -> Response {
 /// les comptes sont épuisés, renvoie 503 + `Retry-After` (signal exploitable
 /// par le disjoncteur d'un routeur), contrairement au proxy transparent qui
 /// laisse passer le 429 d'Anthropic, que Claude Code gère nativement.
-async fn openai_chat(State(app): State<Arc<App>>, headers: HeaderMap, uri: Uri, body: Bytes) -> Response {
+async fn openai_chat(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    uri: Uri,
+    body: Bytes,
+) -> Response {
     let Some(device) = app.device(&headers, &uri) else {
-        return oai_error(StatusCode::UNAUTHORIZED, "authentication_error", "claude-rotate: unknown device key");
+        return oai_error(
+            StatusCode::UNAUTHORIZED,
+            "authentication_error",
+            "claude-rotate: unknown device key",
+        );
     };
     let Ok(request) = serde_json::from_slice::<Value>(&body) else {
-        return oai_error(StatusCode::BAD_REQUEST, "invalid_request_error", "body is not valid JSON");
+        return oai_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "body is not valid JSON",
+        );
     };
     let anthropic_body = match oai::oai_to_anthropic(&request) {
         Ok(body) => body,
         Err(msg) => return oai_error(StatusCode::BAD_REQUEST, "invalid_request_error", &msg),
     };
-    let streaming = anthropic_body.get("stream").and_then(Value::as_bool).unwrap_or(false);
-    let model = anthropic_body.get("model").and_then(Value::as_str).map(str::to_owned);
+    let streaming = anthropic_body
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let model = anthropic_body
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let payload = match serde_json::to_vec(&anthropic_body) {
         Ok(payload) => Bytes::from(payload),
-        Err(err) => return oai_error(StatusCode::INTERNAL_SERVER_ERROR, "api_error", &err.to_string()),
+        Err(err) => {
+            return oai_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "api_error",
+                &err.to_string(),
+            );
+        }
     };
 
     let mut fwd = HeaderMap::new();
-    fwd.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    fwd.insert(header::ACCEPT_ENCODING, HeaderValue::from_static("identity"));
-    fwd.insert("anthropic-version", HeaderValue::from_static(ANTHROPIC_VERSION));
+    fwd.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    fwd.insert(
+        header::ACCEPT_ENCODING,
+        HeaderValue::from_static("identity"),
+    );
+    fwd.insert(
+        "anthropic-version",
+        HeaderValue::from_static(ANTHROPIC_VERSION),
+    );
     fwd.insert("anthropic-beta", HeaderValue::from_static(OAUTH_BETA));
 
-    let up = match app.send_upstream(&Method::POST, "/v1/messages", fwd, payload).await {
+    let up = match app
+        .send_upstream(&Method::POST, "/v1/messages", fwd, payload)
+        .await
+    {
         Ok(up) => up,
         Err(err) => {
             tracing::warn!(%err, "API amont injoignable");
-            return oai_error(StatusCode::BAD_GATEWAY, "api_error", "claude-rotate: upstream unreachable");
+            return oai_error(
+                StatusCode::BAD_GATEWAY,
+                "api_error",
+                "claude-rotate: upstream unreachable",
+            );
         }
     };
 
@@ -824,18 +944,28 @@ async fn openai_chat(State(app): State<Arc<App>>, headers: HeaderMap, uri: Uri, 
     };
 
     if status == StatusCode::TOO_MANY_REQUESTS && up.verdict == Some(Verdict::Exhausted) {
-        let retry_after = (app.rotator().earliest_relief(now()) - now()).round().max(1.0) as u64;
+        let retry_after = (app.rotator().earliest_relief(now()) - now())
+            .round()
+            .max(1.0) as u64;
         rec.status = StatusCode::SERVICE_UNAVAILABLE.as_u16();
         app.audit.record(rec);
         out_headers.insert(header::RETRY_AFTER, HeaderValue::from(retry_after));
-        let message = format!("claude-rotate: every account's window is spent; retry in {retry_after}s");
-        let mut resp = oai_error(StatusCode::SERVICE_UNAVAILABLE, "overloaded_error", &message);
+        let message =
+            format!("claude-rotate: every account's window is spent; retry in {retry_after}s");
+        let mut resp = oai_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "overloaded_error",
+            &message,
+        );
         resp.headers_mut().extend(out_headers);
         return resp;
     }
 
     if streaming && status == StatusCode::OK && is_event_stream(up.resp.headers()) {
-        out_headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+        out_headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/event-stream"),
+        );
         out_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
         let body = relay_stream(Arc::clone(&app), up.resp, rec, rate, SseToOai::new());
         return (StatusCode::OK, out_headers, body).into_response();
@@ -845,7 +975,11 @@ async fn openai_chat(State(app): State<Arc<App>>, headers: HeaderMap, uri: Uri, 
         Ok(content) => content,
         Err(err) => {
             tracing::warn!(%err, "lecture de la réponse amont impossible");
-            return oai_error(StatusCode::BAD_GATEWAY, "api_error", "claude-rotate: upstream read failed");
+            return oai_error(
+                StatusCode::BAD_GATEWAY,
+                "api_error",
+                "claude-rotate: upstream read failed",
+            );
         }
     };
     if !up.noted {
@@ -854,14 +988,22 @@ async fn openai_chat(State(app): State<Arc<App>>, headers: HeaderMap, uri: Uri, 
 
     if status != StatusCode::OK {
         app.audit.record(rec);
-        let mut resp = oai_error(status, "api_error", &format!("upstream: {}", upstream_message(&content)));
+        let mut resp = oai_error(
+            status,
+            "api_error",
+            &format!("upstream: {}", upstream_message(&content)),
+        );
         resp.headers_mut().extend(out_headers);
         return resp;
     }
 
     let Ok(message) = serde_json::from_slice::<Value>(&content) else {
         app.audit.record(rec);
-        return oai_error(StatusCode::BAD_GATEWAY, "api_error", "upstream returned invalid JSON");
+        return oai_error(
+            StatusCode::BAD_GATEWAY,
+            "api_error",
+            "upstream returned invalid JSON",
+        );
     };
     rec.usage = message.get("usage").and_then(Usage::from_json);
     app.audit.record(rec);
@@ -872,7 +1014,11 @@ async fn openai_chat(State(app): State<Arc<App>>, headers: HeaderMap, uri: Uri, 
 fn upstream_message(content: &[u8]) -> String {
     serde_json::from_slice::<Value>(content)
         .ok()
-        .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_owned))
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| String::from_utf8_lossy(&content[..content.len().min(200)]).into_owned())
 }
 
@@ -883,11 +1029,20 @@ mod tests {
     #[test]
     fn request_headers_drop_credentials_and_force_identity() {
         let mut src = HeaderMap::new();
-        src.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer dev-key"));
+        src.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer dev-key"),
+        );
         src.insert("x-api-key", HeaderValue::from_static("dev-key"));
         src.insert(header::HOST, HeaderValue::from_static("proxy:8484"));
-        src.insert(header::ACCEPT_ENCODING, HeaderValue::from_static("gzip, br"));
-        src.insert("anthropic-beta", HeaderValue::from_static("oauth-2025-04-20"));
+        src.insert(
+            header::ACCEPT_ENCODING,
+            HeaderValue::from_static("gzip, br"),
+        );
+        src.insert(
+            "anthropic-beta",
+            HeaderValue::from_static("oauth-2025-04-20"),
+        );
         let out = forward_request_headers(&src);
         assert!(out.get(header::AUTHORIZATION).is_none());
         assert!(out.get("x-api-key").is_none());
@@ -900,7 +1055,10 @@ mod tests {
     fn response_headers_drop_encoding_and_tag_account() {
         let mut src = HeaderMap::new();
         src.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
-        src.insert(header::TRANSFER_ENCODING, HeaderValue::from_static("chunked"));
+        src.insert(
+            header::TRANSFER_ENCODING,
+            HeaderValue::from_static("chunked"),
+        );
         src.insert("request-id", HeaderValue::from_static("req_1"));
         let out = response_headers(&src, "acct-1");
         assert!(out.get(header::CONTENT_ENCODING).is_none());
@@ -911,7 +1069,10 @@ mod tests {
 
     #[test]
     fn upstream_message_prefers_json_error() {
-        assert_eq!(upstream_message(br#"{"error":{"message":"overloaded"}}"#), "overloaded");
+        assert_eq!(
+            upstream_message(br#"{"error":{"message":"overloaded"}}"#),
+            "overloaded"
+        );
         assert_eq!(upstream_message(b"plain failure"), "plain failure");
     }
 }
