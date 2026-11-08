@@ -29,11 +29,12 @@ reqwest = { version = "0.13.5", default-features = false, features = ["rustls", 
 rpassword = "7.5.4"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
-tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "fs", "time", "sync"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "fs", "time", "sync", "net"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [dev-dependencies]
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 tempfile = "3"
 tower = { version = "0.5.3", features = ["util"] }
 
