@@ -1,0 +1,51 @@
+# Unité systemd pour Linux. Installation :
+#   sudo useradd --system --home-dir /var/lib/claude-rotate --create-home claude-rotate
+#   sudo install -m 0755 claude-rotate /usr/local/bin/
+#   sudo -u claude-rotate claude-rotate --root /var/lib/claude-rotate init
+#   sudo cp deploy/claude-rotate.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now claude-rotate
+[Unit]
+Description=claude-rotate - proxy de rotation des abonnements Claude
+Documentation=https://github.com/Dolyyyy/claude-proxy-rotator-rs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=claude-rotate
+Group=claude-rotate
+ExecStart=/usr/local/bin/claude-rotate --root /var/lib/claude-rotate serve
+Restart=always
+RestartSec=3
+Environment=RUST_LOG=claude_rotate=info
+# Les fichiers créés (state.json, logs/) restent privés.
+UMask=0077
+
+# Durcissement : seul le répertoire de données est accessible en écriture.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/claude-rotate
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

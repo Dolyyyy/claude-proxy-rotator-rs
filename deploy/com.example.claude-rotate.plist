@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Agent launchd pour macOS. Remplacez YOU par votre nom d'utilisateur, puis :
+       mkdir -p ~/Library/Logs/claude-rotate
+       claude-rotate --root /Users/YOU/claude-rotate init
+       cp deploy/com.example.claude-rotate.plist ~/Library/LaunchAgents/
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.example.claude-rotate.plist
+     Redémarrage après une modification de config.json :
+       launchctl kickstart -k gui/$(id -u)/com.example.claude-rotate
+     Points d'attention :
+       * Chemin absolu du binaire : le PATH de launchd est minimal.
+       * Le répertoire de données doit être sur le disque local : launchd n'a
+         pas accès aux volumes externes ou amovibles (TCC). -->
+<dict>
+    <key>Label</key>
+    <string>com.example.claude-rotate</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/claude-rotate</string>
+        <string>--root</string>
+        <string>/Users/YOU/claude-rotate</string>
+        <string>serve</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RUST_LOG</key>
+        <string>claude_rotate=info</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/YOU/Library/Logs/claude-rotate/claude-rotate.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOU/Library/Logs/claude-rotate/claude-rotate.err</string>
+</dict>
+</plist>

@@ -1,0 +1,13 @@
+# Seuls les sources et manifestes entrent dans le contexte de build.
+target/
+.git/
+.github/
+deploy/
+config.json
+tokens/
+*.token
+state.json
+state.json.tmp
+logs/
+*.md
+!README.md
