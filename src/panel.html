@@ -1,0 +1,91 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>claude-rotate</title>
+<style>
+ body{font-family:-apple-system,sans-serif;margin:2rem;background:#12151a;color:#e6e6e6}
+ h1{font-size:1.3rem} h2{font-size:1rem;margin-top:1.6rem;color:#9ecbff}
+ table{border-collapse:collapse;margin-top:.4rem;min-width:520px}
+ td,th{padding:.3rem .8rem;border-bottom:1px solid #2a2f38;text-align:right;font-variant-numeric:tabular-nums}
+ td:first-child,th:first-child{text-align:left}
+ .gauge{display:inline-block;width:220px;height:12px;background:#2a2f38;border-radius:6px;overflow:hidden;vertical-align:middle;margin:0 .6rem}
+ .gauge i{display:block;height:100%;background:#4caf7d} .gauge i.hot{background:#e0664d}
+ .active{color:#7dd87d;font-weight:600} .alert-warn{color:#ffb454} .alert-info{color:#9ecbff}
+ .muted{color:#8a919c;font-size:.85rem}
+ #error{color:#e0664d;margin-top:.4rem}
+</style></head><body>
+<h1>claude-rotate <span class="muted" id="upd"></span></h1>
+<div id="error" hidden></div>
+<h2>Devices</h2><table id="t-roster"></table>
+<div id="accounts"></div>
+<h2>Alerts</h2><div id="alerts" class="muted">none</div>
+<h2>Consumption by device (24h)</h2><table id="t-device"></table>
+<h2>Consumption by model (24h)</h2><table id="t-model"></table>
+<h2>Consumption by account (24h)</h2><table id="t-account"></table>
+<h2>Recent switches</h2><div id="events" class="muted">none</div>
+<p class="muted">Cost = API-equivalent dollars at list prices (incl. cache read 0.1x / write 1.25x) — actual spend is covered by the Max subscriptions.</p>
+<script>
+'use strict';
+const KEY = encodeURIComponent(new URLSearchParams(location.search).get('key') || '');
+const $ = id => document.getElementById(id);
+// Every value coming from the API (device names, models, accounts, alert
+// texts, event reasons) is attacker-influenced: escape it before any innerHTML.
+const ESC = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+function esc(v){return String(v ?? '').replace(/[&<>"']/g, c => ESC[c])}
+function num(v){const n = Number(v); return Number.isFinite(n) ? n : 0}
+function fmt(v){const n = num(v); return n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':''+n}
+function pct(v){return Math.min(100, Math.max(0, num(v)*100))}
+function table(el, data){
+  let h='<tr><th></th><th>req</th><th>in</th><th>out</th><th>cache r</th><th>cache w</th><th>$ equiv</th></tr>';
+  for(const [k,v] of Object.entries(data||{}))
+    h+=`<tr><td>${esc(k)}</td><td>${num(v.requests)}</td><td>${fmt(v.input_tokens)}</td><td>${fmt(v.output_tokens)}</td><td>${fmt(v.cache_read)}</td><td>${fmt(v.cache_write)}</td><td>$${num(v.cost_usd).toFixed(2)}</td></tr>`;
+  el.innerHTML=h;
+}
+async function getJson(path){
+  const r = await fetch(path+'?key='+KEY, {cache:'no-store'});
+  if(!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return r.json();
+}
+function render(st, stats){
+  let rh='<tr><th>device</th><th>status</th><th>last seen</th><th>last model</th><th>via account</th><th>req 1h</th><th>tokens 1h</th><th>key</th></tr>';
+  for(const [name,d] of Object.entries(stats.devices||{})){
+    const status = d.online ? '<span class="active">● online</span>' : '<span class="muted">○ idle</span>';
+    const m = d.last_seen_min==null ? null : num(d.last_seen_min);
+    const seen = m==null ? 'never' : m<1 ? 'just now' : m<60 ? m+' min ago' : (m/60).toFixed(1)+' h ago';
+    rh+=`<tr><td>${esc(name)}</td><td>${status}</td><td>${seen}</td><td>${esc(d.last_model||'—')}</td><td>${esc(d.last_account||'—')}</td><td>${num(d.req_1h)}</td><td>${fmt(d.tokens_1h)}</td><td class="muted">${esc(d.key_suffix)}</td></tr>`;
+  }
+  $('t-roster').innerHTML=rh;
+  let h='';
+  for(const [name,a] of Object.entries(st.accounts||{})){
+    const u=num(a.effective_util_5h), w=num(a.util_7d);
+    const act=name===st.active_account?' <span class="active">● active</span>':'';
+    const tags=(a.disabled?' <span class="alert-warn">(disabled)</span>':'')
+      +(a.priority!=null&&num(a.priority)!==100?` <span class="muted">prio ${num(a.priority)}</span>`:'');
+    h+=`<p><b>${esc(name)}</b>${tags}${act}<br>5h <span class="gauge"><i class="${u>=num(st.switch_threshold)?'hot':''}" style="width:${pct(u)}%"></i></span>${(u*100).toFixed(0)}%`
+      +(a.reset_5h_in_min!=null?` <span class="muted">resets in ${num(a.reset_5h_in_min)} min</span>`:'')
+      +`<br>7d <span class="gauge"><i style="width:${pct(w)}%"></i></span>${(w*100).toFixed(0)}%`
+      +(a.reset_7d_in_h!=null?` <span class="muted">resets in ${num(a.reset_7d_in_h)} h</span>`:'')+`</p>`;
+  }
+  $('accounts').innerHTML=h;
+  const alerts = stats.alerts||[];
+  $('alerts').innerHTML = alerts.length
+    ? alerts.map(a=>`<div class="alert-${a.level==='warn'?'warn':'info'}">⚠ ${esc(a.text)}</div>`).join('') : 'none';
+  table($('t-device'), stats.by_device);
+  table($('t-model'), stats.by_model);
+  table($('t-account'), stats.by_account);
+  const events = st.recent_events||[];
+  $('events').innerHTML = events.length
+    ? events.map(e=>`<div>${esc(e.ts)} — ${esc(e.from)} → ${esc(e.to)} (${esc(e.reason)})</div>`).join('') : 'none';
+}
+async function refresh(){
+  try{
+    const [st, stats] = await Promise.all([getJson('/rotate/status'), getJson('/rotate/stats')]);
+    render(st, stats);
+    $('error').hidden=true;
+    $('upd').textContent='updated '+new Date().toLocaleTimeString();
+  }catch(err){
+    // Keep the last good data on screen; the next tick retries.
+    $('error').textContent='refresh failed: '+(err&&err.message||err);
+    $('error').hidden=false;
+  }
+}
+refresh(); setInterval(refresh, 10000);
+</script></body></html>
