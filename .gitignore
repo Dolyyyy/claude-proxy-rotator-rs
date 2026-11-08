@@ -1,0 +1,8 @@
+/target
+# Secrets et état local — ne jamais committer
+config.json
+tokens/
+*.token
+state.json
+state.json.tmp
+logs/

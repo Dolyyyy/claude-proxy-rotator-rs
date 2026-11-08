@@ -1,0 +1,49 @@
+[package]
+name = "claude-rotate"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Self-hosted proxy that rotates Claude Code across several Claude subscriptions, with quota telemetry and an analytics panel"
+license = "MIT"
+repository = "https://github.com/Dolyyyy/claude-proxy-rotator-rs"
+readme = "README.md"
+keywords = ["claude", "proxy", "anthropic", "rate-limit"]
+categories = ["command-line-utilities", "web-programming::http-server"]
+
+[[bin]]
+name = "claude-rotate"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+async-stream = "0.3.6"
+axum = "0.8.9"
+bytes = "1.12.1"
+chrono = "0.4.45"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+futures-util = "0.3.34"
+getrandom = "0.4.3"
+http = "1.5.0"
+indexmap = { version = "2.14.2", features = ["serde"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "http2"] }
+rpassword = "7.5.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "fs", "time", "sync"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5.3", features = ["util"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
